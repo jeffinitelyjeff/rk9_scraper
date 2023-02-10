@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "rk9_scraper"
+version = "0.1.0"
+description = ""
+authors = ["jeffinitelyjeff"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+bs4 = "^0.0.1"
+requests = "^2.27.1"
+python-dateutil = "^2.8.2"
+lxml = "^4.7.1"
+PyYAML = "^6.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
