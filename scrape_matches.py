@@ -12,7 +12,7 @@ import requests
 
 FILENAME = os.path.basename(__file__)
 RK9_PAIRINGS_URL = "https://rk9.gg/pairings/{}"
-BCP_PAIRINGS_URL = "https://{}.execute-api.us-east-1.amazonaws.com/prod/pairings"
+BCP_PAIRINGS_URL = "https://prod-api.bestcoastpairings.com/pairings"
 
 run_timestamp = datetime.datetime.now()
 
@@ -25,7 +25,7 @@ parser.add_argument('--tid', type=str, required=True)
 platform_group = parser.add_mutually_exclusive_group(required=True)
 platform_group.add_argument('--rk9', action='store_true')
 platform_group.add_argument('--bcp', action='store_true')
-parser.add_argument('--hostkey', type=str)
+parser.add_argument('--client-id', type=str)
 
 args = parser.parse_args()
 
@@ -131,26 +131,30 @@ def get_all_matches_rk9(tid):
   return matches
 
 
-def get_bcp_data(hostkey, tid, round, nextKey):
+def get_bcp_data(client_id, tid, round, nextKey):
   params = {
       "eventId": tid,
       "round": round,
       "limit": 100,
       "pairingType": "Pairing"
   }
+  headers = {
+      "client-id": client_id,
+      "User-Agent": "RapidAPI/4.2.0 (Macintosh; OS X/12.4.0) GCDHTTPRequest"
+  }
   if nextKey:
     params["nextKey"] = nextKey
 
-  response = requests.get(BCP_PAIRINGS_URL.format(hostkey), params=params)
+  response = requests.get(BCP_PAIRINGS_URL, params=params, headers=headers)
   data = response.json()
 
   return data
 
 
-def get_round_match_data_bcp(hostkey, tid, round):
+def get_round_match_data_bcp(client_id, tid, round):
   log(f"scraping round {round}")
   part = 1
-  data = get_bcp_data(hostkey, tid, round, None)
+  data = get_bcp_data(client_id, tid, round, None)
   matches = data.get("data", [])
   nextKey = data.get("nextKey")
   if not matches or not nextKey:
@@ -159,7 +163,7 @@ def get_round_match_data_bcp(hostkey, tid, round):
   while isinstance(nextKey, str):
     part += 1
     log(f"scraping round {round} (part {part})")
-    data = get_bcp_data(hostkey, tid, round, nextKey)
+    data = get_bcp_data(client_id, tid, round, nextKey)
     matches.extend(data["data"])
     nextKey = data["nextKey"]
 
@@ -183,11 +187,11 @@ def match_for_bcp_match_data(match_data):
   return Match(winner, loser, table, round)
 
 
-def get_all_matches_bcp(hostkey, tid):
+def get_all_matches_bcp(client_id, tid):
   match_data = []
 
   for round in range(1, 20):
-    new_matches = get_round_match_data_bcp(hostkey, tid, round)
+    new_matches = get_round_match_data_bcp(client_id, tid, round)
     if new_matches:
       match_data.extend(new_matches)
     else:
@@ -205,10 +209,10 @@ def main():
   if args.rk9:
     matches = get_all_matches_rk9(args.tid)
   elif args.bcp:
-    if not args.hostkey:
-      log("bcp hostkey required")
+    if not args.client_id:
+      log("bcp client-id required")
       sys.exit(1)
-    matches = get_all_matches_bcp(args.hostkey, args.tid)
+    matches = get_all_matches_bcp(args.client_id, args.tid)
   else:
     log("invalid platform")
     sys.exit(1)
