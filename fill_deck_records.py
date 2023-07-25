@@ -7,6 +7,7 @@ import os
 import pprint
 import sys
 
+import inquirer
 import nicknames
 
 FILENAME = os.path.basename(__file__)
@@ -47,12 +48,32 @@ def read_csv(fname):
     return list(reader)
 
 
+def write_csv(fname, rows, fields):
+  path = os.path.join(main_dir, fname)
+  with open(path, 'w') as csvfile:
+    writer = csv.DictWriter(csvfile, fieldnames=fields)
+    writer.writeheader()
+    rows.sort(key=lambda x: x["Record Name"])
+    for row in rows:
+      writer.writerow(row)
+
+
 # --- main ---
 
 sub_decks = read_csv("submitted_decks.csv")
 normalized_decks = read_csv("normalized_decks.csv")
 matches = read_csv("matches.csv")
 games = read_csv("games.csv")
+
+try:
+  overrides = read_csv("overrides.csv")
+  override_dict = {}
+  for row in overrides:
+    record_name = row["Record Name"].strip().lower()
+    submitted_name = row["Submitted Name"].strip().lower()
+    override_dict[record_name] = submitted_name
+except FileNotFoundError:
+  override_dict = {}
 
 try:
   ignore_names = read_csv("ignored_names.csv")
@@ -146,16 +167,40 @@ def sub_name_for_record_player(player):
 
 
 def player_mapping():
-  dict = {}
+  dict = override_dict.copy()
   mismatched_players = set()
 
   for player in sorted(record_players):
+    if not player:
+      continue
+
+    if player in ignored_names:
+      continue
+
+    if player in override_dict:
+      continue
+
     sub_name, guesses = sub_name_for_record_player(player)
     if sub_name is not None:
       dict[player] = sub_name
+    elif guesses:
+      reject = u"✗ None of these"
+      question = inquirer.List(
+          'chosen_guess',
+          message=f"Which of these is =>[{player}]<=?",
+          choices=guesses + [reject],
+          carousel=True,
+      )
+      answers = inquirer.prompt([question])
+      answer = answers["chosen_guess"]
+      if answer == reject:
+        log(f"player not found: {player}")
+        mismatched_players.add(player)
+      else:
+        dict[player] = answer
+        override_dict[player] = answer
     else:
-      guesses_f = f"(guesses: {', '.join(guesses)})" if len(guesses) > 0 else ""
-      log(f"player not found: {player} {guesses_f}")
+      log(f"player not found: {player}")
       mismatched_players.add(player)
 
   if len(mismatched_players) > 0:
@@ -204,12 +249,23 @@ def write_deck_records(record_type, records):
   return broken_records, ignored_records
 
 
+if override_dict:
+  overrides = []
+  for k, v in override_dict.items():
+    overrides.append({"Record Name": k, "Submitted Name": v})
+    ## don't need to append, just write whatever was stored in meemroy
+  write_csv("overrides.csv", overrides, ["Record Name", "Submitted Name"])
+
 broken_matches, ignored_matches = write_deck_records("matches", matches)
 broken_games, ignored_games = write_deck_records("games", games)
 
-log(f"mismatched decks: {num_bad_decks} (of {len(sub_decks)})")
-log(f"mismatched players: {num_bad_players} (of {len(sub_decks)})")
-log(f"broken matches: {broken_matches} (of {len(matches)})")
-log(f"broken games: {broken_games} (of {len(games)})")
+log(f"")
 log(f"ignored matches: {ignored_matches} (of {len(matches)})")
 log(f"ignored games: {ignored_games} (of {len(games)})")
+log(f"")
+log(f"mismatched decks: {num_bad_decks} (of {len(sub_decks)})")
+log(f"mismatched players: {num_bad_players} (of {len(sub_decks)})")
+log(f"")
+log(f"broken matches: {broken_matches} (of {len(matches)})")
+log(f"broken games: {broken_games} (of {len(games)})")
+log(f"")
