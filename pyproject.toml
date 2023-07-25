@@ -11,6 +11,7 @@ requests = "^2.27.1"
 python-dateutil = "^2.8.2"
 lxml = "^4.7.1"
 PyYAML = "^6.0"
+nicknames = "^0.1.6"
 
 [tool.poetry.dev-dependencies]
 
