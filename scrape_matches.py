@@ -1,6 +1,5 @@
 import argparse
 import csv
-from curses import meta
 import datetime
 import logging
 import os
@@ -26,6 +25,7 @@ platform_group = parser.add_mutually_exclusive_group(required=True)
 platform_group.add_argument('--rk9', action='store_true')
 platform_group.add_argument('--bcp', action='store_true')
 parser.add_argument('--client-id', type=str)
+parser.add_argument('--games', action='store_true')
 
 args = parser.parse_args()
 
@@ -64,11 +64,12 @@ def scrape_rk9(data_url):
 
 class Match:
 
-  def __init__(self, winner, loser, table, round):
+  def __init__(self, winner, loser, table, round, winner_wins=0, loser_wins=0):
     self.winner = winner
     self.loser = loser
     self.table = table
     self.round = round
+    self.games = self.make_games(winner_wins, loser_wins)
 
   def __repr__(self):
     return f"{self.winner} beat {self.loser} (round {self.round}, table {self.table})"
@@ -76,6 +77,35 @@ class Match:
 
   def is_valid_match(self):
     return self.winner and self.loser and self.table
+
+  def make_games(self, winner_wins, loser_wins):
+    l = []
+
+    if winner_wins == '':
+      winner_wins = 0
+
+    if loser_wins == '':
+      loser_wins = 0
+
+    for i in range(int(winner_wins) or 0):
+      l.append(Game(self.winner, self.loser, self.table, self.round))
+
+    for i in range(int(loser_wins) or 0):
+      l.append(Game(self.loser, self.winner, self.table, self.round))
+
+    return l
+
+
+class Game:
+
+  def __init__(self, winner, loser, table, round):
+    self.winner = winner
+    self.loser = loser
+    self.table = table
+    self.round = round
+
+  def __repr__(self):
+    return f"{self.winner} beat {self.loser} (round {self.round}, table {self.table}, game {self.match_game})"
 
 
 def get_matches_rk9(data, round):
@@ -182,9 +212,17 @@ def match_for_bcp_match_data(match_data):
   p1Name = "{} {}".format(metadata["p1-firstName"], metadata["p1-lastName"])
   p2Name = "{} {}".format(metadata["p2-firstName"], metadata["p2-lastName"])
   p1Win = int(metadata["p1-marginOfVictory"]) > 0
-  winner = p1Name if p1Win else p2Name
-  loser = p2Name if p1Win else p1Name
-  return Match(winner, loser, table, round)
+  if p1Win:
+    winner = p1Name
+    loser = p2Name
+    winner_wins = metadata["p1-gamePoints"]
+    loser_wins = metadata["p2-gamePoints"]
+  else:
+    winner = p2Name
+    loser = p1Name
+    winner_wins = metadata["p2-gamePoints"]
+    loser_wins = metadata["p1-gamePoints"]
+  return Match(winner, loser, table, round, winner_wins, loser_wins)
 
 
 def get_all_matches_bcp(client_id, tid):
@@ -200,7 +238,7 @@ def get_all_matches_bcp(client_id, tid):
   log(f"done scraping")
 
   matches = [match_for_bcp_match_data(match) for match in match_data]
-  return [m for m in matches if m]
+  return [m for m in matches if m and m.is_valid_match()]
 
 
 def main():
@@ -217,16 +255,27 @@ def main():
     log("invalid platform")
     sys.exit(1)
 
-  log(f"found {len(matches)} matches")
+  games = sum([len(m.games) for m in matches])
+  log(f"found {len(matches)} matches ({games} games)")
 
-  output_path = os.path.join(args.output, f"{platform}_{args.tid}_matches.csv")
-  with open(output_path, 'w', newline='') as f:
+  match_path = os.path.join(args.output, f"{platform}_{args.tid}_matches.csv")
+  with open(match_path, 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(["round", "table", "winner", "loser"])
     for match in matches:
       writer.writerow([match.round, match.table, match.winner, match.loser])
 
-  log(f"output written to {output_path}")
+  log(f"output written to {match_path}")
+
+  game_path = os.path.join(args.output, f"{platform}_{args.tid}_games.csv")
+  with open(game_path, 'w', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow(["round", "table", "winner", "loser"])
+    for match in matches:
+      for game in match.games:
+        writer.writerow([game.round, game.table, game.winner, game.loser])
+
+  log(f"output written to {game_path}")
 
 
 if __name__ == "__main__":
