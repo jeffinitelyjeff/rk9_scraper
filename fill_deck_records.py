@@ -64,6 +64,10 @@ sub_decks = read_csv("submitted_decks.csv")
 normalized_decks = read_csv("normalized_decks.csv")
 matches = read_csv("matches.csv")
 games = read_csv("games.csv")
+rankings = read_csv("rankings.csv")
+
+ranking_by_pid = {r["player_id"]: int(r["ranking"]) for r in rankings}
+num_players = len(rankings)
 
 try:
   overrides = read_csv("overrides.csv")
@@ -162,7 +166,6 @@ def sub_name_for_record_player(player):
   if len(same_first_or_last) > 0:
     return None, same_first_or_last
 
-  # FIXME: let user pick a guess
   return None, []
 
 
@@ -218,46 +221,112 @@ sub_player_for_record_player, num_bad_players = player_mapping()
 def write_deck_records(record_type, records):
   broken_records = 0
   ignored_records = 0
+  top_count = Counter()
 
   output_path = os.path.join(main_dir, f"deck_{record_type}.csv")
   with open(output_path, "w") as f:
     writer = csv.writer(f)
-    writer.writerow(
-        ["round", "table", "winner", "loser", "winner_deck", "loser_deck"])
+    writer.writerow([
+        "round", "table", "winner", "loser", "winner_deck", "loser_deck",
+        "top_10p", "top_20p", "top_30p", "top_40p", "top_50p"
+    ])
     for record in records:
       round = record["round"]
       table = record["table"]
-      winner = record["winner"].strip().lower()
-      loser = record["loser"].strip().lower()
+      record_winner = record["winner"].strip().lower()
+      record_loser = record["loser"].strip().lower()
+      winner_pid = record["winner_pid"]
+      loser_pid = record["loser_pid"]
 
-      if winner in ignored_names or loser in ignored_names:
+      if not record_loser:
+        continue
+
+      if record_winner in ignored_names or record_loser in ignored_names:
         ignored_records += 1
         continue
 
-      submitted_winner = sub_player_for_record_player.get(winner)
-      submitted_loser = sub_player_for_record_player.get(loser)
+      winner_rank = ranking_by_pid.get(winner_pid, num_players + 1)
+      loser_rank = ranking_by_pid.get(loser_pid, num_players + 1)
 
-      if submitted_winner is None or submitted_loser is None:
+      winner_top_10p = winner_rank <= num_players * 0.1
+      loser_top_10p = loser_rank <= num_players * 0.1
+      both_top_10p = winner_top_10p and loser_top_10p
+      if both_top_10p:
+        top_count["10p"] += 1
+
+      winner_top_20p = winner_rank <= num_players * 0.2
+      loser_top_20p = loser_rank <= num_players * 0.2
+      both_top_20p = winner_top_20p and loser_top_20p
+      if both_top_20p:
+        top_count["20p"] += 1
+
+      winner_top_30p = winner_rank <= num_players * 0.3
+      loser_top_30p = loser_rank <= num_players * 0.3
+      both_top_30p = winner_top_30p and loser_top_30p
+      if both_top_30p:
+        top_count["30p"] += 1
+
+      winner_top_40p = winner_rank <= num_players * 0.4
+      loser_top_40p = loser_rank <= num_players * 0.4
+      both_top_40p = winner_top_40p and loser_top_40p
+      if both_top_40p:
+        top_count["40p"] += 1
+
+      winner_top_50p = winner_rank <= num_players * 0.5
+      loser_top_50p = loser_rank <= num_players * 0.5
+      both_top_50p = winner_top_50p and loser_top_50p
+      if both_top_50p:
+        top_count["50p"] += 1
+
+      sub_winner = sub_player_for_record_player.get(record_winner)
+      sub_loser = sub_player_for_record_player.get(record_loser)
+
+      if sub_winner is None or sub_loser is None:
+        log(f"broken {record_type} record: {record}", print_dest=None)
         broken_records += 1
         continue
 
-      winner_deck = deck_for_sub_player[submitted_winner]
-      loser_deck = deck_for_sub_player[submitted_loser]
+      winner_deck = deck_for_sub_player[sub_winner]
+      loser_deck = deck_for_sub_player[sub_loser]
 
-      writer.writerow([round, table, winner, loser, winner_deck, loser_deck])
+      writer.writerow([
+          round,
+          table,
+          record_winner,
+          record_loser,
+          winner_deck,
+          loser_deck,
+          "y" if both_top_10p else "",
+          "y" if both_top_20p else "",
+          "y" if both_top_30p else "",
+          "y" if both_top_40p else "",
+          "y" if both_top_50p else "",
+      ])
 
-  return broken_records, ignored_records
+  return broken_records, ignored_records, top_count
 
 
 if override_dict:
   overrides = []
   for k, v in override_dict.items():
     overrides.append({"Record Name": k, "Submitted Name": v})
-    ## don't need to append, just write whatever was stored in meemroy
   write_csv("overrides.csv", overrides, ["Record Name", "Submitted Name"])
 
-broken_matches, ignored_matches = write_deck_records("matches", matches)
-broken_games, ignored_games = write_deck_records("games", games)
+broken_matches, ignored_matches, top_match_counter = write_deck_records(
+    "matches", matches)
+broken_games, ignored_games, top_game_counter = write_deck_records(
+    "games", games)
+
+t10p_m = top_match_counter["10p"]
+t20p_m = top_match_counter["20p"]
+t30p_m = top_match_counter["30p"]
+t40p_m = top_match_counter["40p"]
+t50p_m = top_match_counter["50p"]
+t10p_g = top_game_counter["10p"]
+t20p_g = top_game_counter["20p"]
+t30p_g = top_game_counter["30p"]
+t40p_g = top_game_counter["40p"]
+t50p_g = top_game_counter["50p"]
 
 log(f"")
 log(f"ignored matches: {ignored_matches} (of {len(matches)})")
@@ -268,4 +337,9 @@ log(f"mismatched players: {num_bad_players} (of {len(sub_decks)})")
 log(f"")
 log(f"broken matches: {broken_matches} (of {len(matches)})")
 log(f"broken games: {broken_games} (of {len(games)})")
+log(f"")
+log(f"top 10/20/30/40/50% matches: {t10p_m}/{t20p_m}/{t30p_m}/{t40p_m}/{t50p_m} (of {len(matches)})"
+   )
+log(f"top 10/20/30/40/50% games: {t10p_g}/{t20p_g}/{t30p_g}/{t40p_g}/{t50p_g} (of {len(games)})"
+   )
 log(f"")

@@ -64,11 +64,21 @@ def scrape_rk9(data_url):
 
 class Match:
 
-  def __init__(self, winner, loser, table, round, winner_wins=0, loser_wins=0):
+  def __init__(self,
+               winner,
+               loser,
+               table,
+               round,
+               winner_wins=0,
+               loser_wins=0,
+               winner_pid=None,
+               loser_pid=None):
     self.winner = winner
     self.loser = loser
     self.table = table
     self.round = round
+    self.winner_pid = winner_pid
+    self.loser_pid = loser_pid
     self.games = self.make_games(winner_wins, loser_wins)
 
   def __repr__(self):
@@ -88,21 +98,33 @@ class Match:
       loser_wins = 0
 
     for i in range(int(winner_wins) or 0):
-      l.append(Game(self.winner, self.loser, self.table, self.round))
+      l.append(
+          Game(self.winner, self.loser, self.table, self.round, self.winner_pid,
+               self.loser_pid))
 
     for i in range(int(loser_wins) or 0):
-      l.append(Game(self.loser, self.winner, self.table, self.round))
+      l.append(
+          Game(self.loser, self.winner, self.table, self.round, self.loser_pid,
+               self.winner_pid))
 
     return l
 
 
 class Game:
 
-  def __init__(self, winner, loser, table, round):
+  def __init__(self,
+               winner,
+               loser,
+               table,
+               round,
+               winner_pid=None,
+               loser_pid=None):
     self.winner = winner
     self.loser = loser
     self.table = table
     self.round = round
+    self.winner_pid = winner_pid
+    self.loser_pid = loser_pid
 
   def __repr__(self):
     return f"{self.winner} beat {self.loser} (round {self.round}, table {self.table}, game {self.match_game})"
@@ -217,12 +239,17 @@ def match_for_bcp_match_data(match_data):
     loser = p2Name
     winner_wins = metadata["p1-gamePoints"]
     loser_wins = metadata["p2-gamePoints"]
+    winner_pid = match_data.get("player1Id")
+    loser_pid = match_data.get("player2Id")
   else:
     winner = p2Name
     loser = p1Name
     winner_wins = metadata["p2-gamePoints"]
     loser_wins = metadata["p1-gamePoints"]
-  return Match(winner, loser, table, round, winner_wins, loser_wins)
+    winner_pid = match_data.get("player2Id")
+    loser_pid = match_data.get("player1Id")
+  return Match(winner, loser, table, round, winner_wins, loser_wins, winner_pid,
+               loser_pid)
 
 
 def get_all_matches_bcp(client_id, tid):
@@ -261,19 +288,27 @@ def main():
   match_path = os.path.join(args.output, f"{platform}_{args.tid}_matches.csv")
   with open(match_path, 'w', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(["round", "table", "winner", "loser"])
+    writer.writerow(
+        ["round", "table", "winner", "loser", "winner_pid", "loser_pid"])
     for match in matches:
-      writer.writerow([match.round, match.table, match.winner, match.loser])
+      writer.writerow([
+          match.round, match.table, match.winner, match.loser, match.winner_pid,
+          match.loser_pid
+      ])
 
   log(f"output written to {match_path}")
 
   game_path = os.path.join(args.output, f"{platform}_{args.tid}_games.csv")
   with open(game_path, 'w', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(["round", "table", "winner", "loser"])
+    writer.writerow(
+        ["round", "table", "winner", "loser", "winner_pid", "loser_pid"])
     for match in matches:
       for game in match.games:
-        writer.writerow([game.round, game.table, game.winner, game.loser])
+        writer.writerow([
+            game.round, game.table, game.winner, game.loser, game.winner_pid,
+            game.loser_pid
+        ])
 
   log(f"output written to {game_path}")
 

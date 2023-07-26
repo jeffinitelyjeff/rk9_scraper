@@ -50,15 +50,16 @@ def log(msg, print_dest="stderr"):
 
 class Player:
 
-  def __init__(self, name, ranking):
+  def __init__(self, name, ranking, player_id):
     self.name = name
     self.ranking = ranking
+    self.player_id = player_id
 
   def __repr__(self):
     return f"{self.name} placement: {self.ranking}"
 
   def is_valid(self):
-    return self.name and self.ranking
+    return self.name and self.ranking and self.player_id
 
 
 def get_bcp_rankings_data(client_id, eventID, nextKey):
@@ -102,9 +103,12 @@ def get_all_bcp_rankings_data(client_id, eventID):
 
 
 def player_for_bcp_player_data(player_data):
-  name = player_data["name"]
+  first_name = player_data["firstName"]
+  last_name = player_data["lastName"]
+  name = f"{first_name} {last_name}"
   placement = player_data["placing"]
-  player = Player(name, placement)
+  player_id = player_data["id"]
+  player = Player(name, placement, player_id)
   if player.is_valid():
     return player
   else:
@@ -135,9 +139,9 @@ def main():
                               f"{platform}_{args.tid}_rankings.csv")
   with open(players_path, 'w', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(["ranking", "name"])
+    writer.writerow(["ranking", "name", "player_id"])
     for player in players:
-      writer.writerow([player.ranking, player.name])
+      writer.writerow([player.ranking, player.name, player.player_id])
 
   log(f"output written to {players_path}")
 
