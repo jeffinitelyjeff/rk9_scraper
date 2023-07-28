@@ -62,10 +62,10 @@ class Player:
     return self.name and self.ranking and self.player_id
 
 
-def get_bcp_rankings_data(client_id, eventID, nextKey):
+def get_bcp_rankings_data(client_id, eventID, limit, nextKey):
   params = {
       "eventId": eventID,
-      "limit": 100,
+      "limit": limit,
       "placings": True,
   }
   headers = {
@@ -84,18 +84,24 @@ def get_bcp_rankings_data(client_id, eventID, nextKey):
 def get_all_bcp_rankings_data(client_id, eventID):
   log(f"scraping rankings")
   part = 1
-  data = get_bcp_rankings_data(client_id, eventID, None)
-  players = data.get("data", [])
-  nextKey = data.get("nextKey")
-  if not players or not nextKey:
+  limit = 100
+  nextKey = None
+  data = get_bcp_rankings_data(client_id, eventID, limit, None)
+  items = data.get("data", [])
+  players = items.copy()
+  if not players:
     return []
+  elif len(players) >= limit:
+    nextKey = data.get("nextKey")
 
-  while isinstance(nextKey, str) and len(data["data"]) > 0:
+  while isinstance(nextKey, str) and len(items) > 0:
     part += 1
     log(f"scraping rankings (part {part})")
-    data = get_bcp_rankings_data(client_id, eventID, nextKey)
-    players.extend(data["data"])
-    nextKey = data["nextKey"]
+    data = get_bcp_rankings_data(client_id, eventID, 100, nextKey)
+    items = data.get("data", [])
+    players.extend(items)
+    if len(items) >= limit:
+      nextKey = data["nextKey"]
 
   log(f"found {len(players)} rankings")
   players.sort(key=lambda p: p["placing"])

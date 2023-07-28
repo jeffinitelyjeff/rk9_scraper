@@ -183,11 +183,11 @@ def get_all_matches_rk9(tid):
   return matches
 
 
-def get_bcp_data(client_id, tid, round, nextKey):
+def get_bcp_data(client_id, tid, round, limit, nextKey):
   params = {
       "eventId": tid,
       "round": round,
-      "limit": 100,
+      "limit": limit,
       "pairingType": "Pairing"
   }
   headers = {
@@ -206,18 +206,24 @@ def get_bcp_data(client_id, tid, round, nextKey):
 def get_round_match_data_bcp(client_id, tid, round):
   log(f"scraping round {round}")
   part = 1
-  data = get_bcp_data(client_id, tid, round, None)
-  matches = data.get("data", [])
-  nextKey = data.get("nextKey")
-  if not matches or not nextKey:
+  limit = 100
+  nextKey = None
+  data = get_bcp_data(client_id, tid, round, limit, None)
+  items = data.get("data", [])
+  matches = items.copy()
+  if not matches:
     return []
+  elif len(matches) >= limit:
+    nextKey = data.get("nextKey")
 
-  while isinstance(nextKey, str):
+  while isinstance(nextKey, str) and len(items) > 0:
     part += 1
     log(f"scraping round {round} (part {part})")
-    data = get_bcp_data(client_id, tid, round, nextKey)
-    matches.extend(data["data"])
-    nextKey = data["nextKey"]
+    data = get_bcp_data(client_id, tid, round, limit, nextKey)
+    items = data.get("data", [])
+    matches.extend(items)
+    if len(items) >= limit:
+      nextKey = data.get("nextKey")
 
   log(f"found {len(matches)} matches for round {round}")
   matches.sort(key=lambda m: m["table"])
