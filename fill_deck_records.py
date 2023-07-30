@@ -8,7 +8,6 @@ import pprint
 import sys
 
 import inquirer
-import nicknames
 
 FILENAME = os.path.basename(__file__)
 
@@ -61,7 +60,6 @@ def write_csv(fname, rows, fields):
 # --- main ---
 
 sub_decks = read_csv("submitted_decks.csv")
-normalized_decks = read_csv("normalized_decks.csv")
 matches = read_csv("matches.csv")
 games = read_csv("games.csv")
 rankings = read_csv("rankings.csv")
@@ -111,12 +109,16 @@ for match in matches:
 
 
 def deck_mapping():
-  canon_decks_by_sub = {}
 
-  for deck in normalized_decks:
-    submitted = deck["Submitted Deck Type"]
-    canonical_name = deck["Canonical Deck Type"]
-    canon_decks_by_sub[submitted] = canonical_name
+  try:
+    normalized_decks = read_csv("normalized_decks.csv")
+    canon_decks_by_sub = {}
+    for deck in normalized_decks:
+      submitted = deck["Submitted Deck Type"]
+      canonical_name = deck["Canonical Deck Type"]
+      canon_decks_by_sub[submitted] = canonical_name
+  except FileNotFoundError:
+    canon_decks_by_sub = {}
 
   deck_dict = {}
   mismatched_decks = set()
@@ -124,7 +126,12 @@ def deck_mapping():
   for player in sub_decks:
     sub_player_name = player["Player Name"].strip().lower()
     sub_deck = player["Deck Type"]
-    canon_deck = canon_decks_by_sub.get(sub_deck)
+
+    if canon_decks_by_sub:
+      canon_deck = canon_decks_by_sub.get(sub_deck)
+    else:
+      canon_deck = sub_deck
+
     if canon_deck is None:
       log(f"deck not found: {sub_deck}")
       mismatched_decks.add(sub_deck)
