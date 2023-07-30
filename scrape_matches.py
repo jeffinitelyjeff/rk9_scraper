@@ -9,9 +9,10 @@ import sys
 import bs4
 import requests
 
+import bcp
+
 FILENAME = os.path.basename(__file__)
 RK9_PAIRINGS_URL = "https://rk9.gg/pairings/{}"
-BCP_PAIRINGS_URL = "https://prod-api.bestcoastpairings.com/pairings"
 
 run_timestamp = datetime.datetime.now()
 
@@ -183,26 +184,6 @@ def get_all_matches_rk9(tid):
   return matches
 
 
-def get_bcp_data(client_id, tid, round, limit, nextKey):
-  params = {
-      "eventId": tid,
-      "round": round,
-      "limit": limit,
-      "pairingType": "Pairing"
-  }
-  headers = {
-      "client-id": client_id,
-      "User-Agent": "RapidAPI/4.2.0 (Macintosh; OS X/12.4.0) GCDHTTPRequest"
-  }
-  if nextKey:
-    params["nextKey"] = nextKey
-
-  response = requests.get(BCP_PAIRINGS_URL, params=params, headers=headers)
-  data = response.json()
-
-  return data
-
-
 def get_round_match_data_bcp(client_id, tid, round):
   log(f"scraping round {round}")
   part = 1
@@ -258,11 +239,11 @@ def match_for_bcp_match_data(match_data):
                loser_pid)
 
 
-def get_all_matches_bcp(client_id, tid):
+def get_all_matches_bcp(client_id, event_id):
   match_data = []
 
   for round in range(1, 20):
-    new_matches = get_round_match_data_bcp(client_id, tid, round)
+    new_matches = bcp.get_all_match_data(client_id, event_id, round)
     if new_matches:
       match_data.extend(new_matches)
     else:
