@@ -111,32 +111,36 @@ for match in matches:
 def deck_mapping():
 
   try:
+    # this path is deprecated
     normalized_decks = read_csv("normalized_decks.csv")
-    canon_decks_by_sub = {}
+    canon_decks_by_sub_deck = {}
     for deck in normalized_decks:
       submitted = deck["Submitted Deck Type"]
       canonical_name = deck["Canonical Deck Type"]
-      canon_decks_by_sub[submitted] = canonical_name
+      canon_decks_by_sub_deck[submitted] = canonical_name
   except FileNotFoundError:
-    canon_decks_by_sub = {}
+    canon_decks_by_sub_deck = {}
 
   deck_dict = {}
   mismatched_decks = set()
 
   for player in sub_decks:
     sub_player_name = player["Player Name"].strip().lower()
-    sub_deck = player["Deck Type"]
+    sub_deck_1 = player["Deck Type"]
+    sub_deck_2 = player["Deck Type 2"]
 
-    if canon_decks_by_sub:
-      canon_deck = canon_decks_by_sub.get(sub_deck)
+    if canon_decks_by_sub_deck:
+      canon_deck_1 = canon_decks_by_sub_deck.get(sub_deck_1)
+      canon_deck_2 = canon_decks_by_sub_deck.get(sub_deck_2)
     else:
-      canon_deck = sub_deck
+      canon_deck_1 = sub_deck_1
+      canon_deck_2 = sub_deck_2
 
-    if canon_deck is None:
-      log(f"deck not found: {sub_deck}")
-      mismatched_decks.add(sub_deck)
+    if canon_deck_1 is None:
+      log(f"deck not found: {sub_deck_1}")
+      mismatched_decks.add(sub_deck_1)
     else:
-      deck_dict[sub_player_name] = canon_deck
+      deck_dict[sub_player_name] = (canon_deck_1, canon_deck_2)
 
   if len(mismatched_decks) > 0:
     output_path = os.path.join(main_dir, "mismatched_decks.txt")
@@ -170,8 +174,10 @@ def sub_name_for_record_player(player):
 
   same_first_or_last = sorted(same_first.union(same_last))
 
-  if len(same_first_or_last) > 0:
-    return None, same_first_or_last
+  guesses = [f'{g} *' if g in record_players else g for g in same_first_or_last]
+
+  if len(guesses) > 0:
+    return None, guesses
 
   return None, []
 
@@ -180,38 +186,38 @@ def player_mapping():
   dict = override_dict.copy()
   mismatched_players = set()
 
-  for player in sorted(record_players):
-    if not player:
+  for rec_player in sorted(record_players):
+    if not rec_player:
       continue
 
-    if player in ignored_names:
+    if rec_player in ignored_names:
       continue
 
-    if player in override_dict:
+    if rec_player in override_dict:
       continue
 
-    sub_name, guesses = sub_name_for_record_player(player)
+    sub_name, guesses = sub_name_for_record_player(rec_player)
     if sub_name is not None:
-      dict[player] = sub_name
+      dict[rec_player] = sub_name
     elif guesses:
       reject = u"✗ None of these"
       question = inquirer.List(
           'chosen_guess',
-          message=f"Which of these is =>[{player}]<=?",
+          message=f"Which sub name is record name =>[ {rec_player} ]<=?",
           choices=guesses + [reject],
           carousel=True,
       )
       answers = inquirer.prompt([question])
       answer = answers["chosen_guess"]
       if answer == reject:
-        log(f"player not found: {player}")
-        mismatched_players.add(player)
+        log(f"player not found: {rec_player}")
+        mismatched_players.add(rec_player)
       else:
-        dict[player] = answer
-        override_dict[player] = answer
+        dict[rec_player] = answer
+        override_dict[rec_player] = answer
     else:
-      log(f"player not found: {player}")
-      mismatched_players.add(player)
+      log(f"player not found: {rec_player}")
+      mismatched_players.add(rec_player)
 
   if len(mismatched_players) > 0:
     output_path = os.path.join(main_dir, "mismatched_players.txt")
@@ -221,7 +227,7 @@ def player_mapping():
   return dict, len(mismatched_players)
 
 
-deck_for_sub_player, num_bad_decks = deck_mapping()
+decks_for_sub_player, num_bad_decks = deck_mapping()
 sub_player_for_record_player, num_bad_players = player_mapping()
 
 
@@ -229,13 +235,15 @@ def write_deck_records(record_type, records):
   broken_records = 0
   ignored_records = 0
   top_count = Counter()
+  core_count = 0
+  extra_count = 0
 
   output_path = os.path.join(main_dir, f"deck_{record_type}.csv")
   with open(output_path, "w") as f:
     writer = csv.writer(f)
     writer.writerow([
         "round", "table", "winner", "loser", "winner_deck", "loser_deck",
-        "top_10p", "top_20p", "top_30p", "top_40p", "top_50p"
+        "core_record", "top_10p", "top_20p", "top_30p", "top_40p", "top_50p"
     ])
     for record in records:
       round = record["round"]
@@ -293,24 +301,43 @@ def write_deck_records(record_type, records):
         broken_records += 1
         continue
 
-      winner_deck = deck_for_sub_player[sub_winner]
-      loser_deck = deck_for_sub_player[sub_loser]
+      (winner_deck_1, winner_deck_2) = decks_for_sub_player[sub_winner]
+      (loser_deck_1, loser_deck_2) = decks_for_sub_player[sub_loser]
 
-      writer.writerow([
-          round,
-          table,
-          record_winner,
-          record_loser,
-          winner_deck,
-          loser_deck,
-          "y" if both_top_10p else "",
-          "y" if both_top_20p else "",
-          "y" if both_top_30p else "",
-          "y" if both_top_40p else "",
-          "y" if both_top_50p else "",
-      ])
+      deck_pairs = []
 
-  return broken_records, ignored_records, top_count
+      # winner, loser, is_core_record
+      deck_pairs.append((winner_deck_1, loser_deck_1, True))
+
+      if winner_deck_2:
+        deck_pairs.append((winner_deck_2, loser_deck_1, False))
+      if loser_deck_2:
+        deck_pairs.append((winner_deck_1, loser_deck_2, False))
+      if winner_deck_2 and loser_deck_2:
+        deck_pairs.append((winner_deck_2, loser_deck_2, False))
+
+      for (winner_deck, loser_deck, is_core_record) in deck_pairs:
+        if is_core_record:
+          core_count += 1
+        else:
+          extra_count += 1
+
+        writer.writerow([
+            round,
+            table,
+            record_winner,
+            record_loser,
+            winner_deck,
+            loser_deck,
+            "y" if is_core_record else "",
+            "y" if both_top_10p else "",
+            "y" if both_top_20p else "",
+            "y" if both_top_30p else "",
+            "y" if both_top_40p else "",
+            "y" if both_top_50p else "",
+        ])
+
+  return broken_records, ignored_records, top_count, core_count, extra_count
 
 
 if override_dict:
@@ -319,10 +346,10 @@ if override_dict:
     overrides.append({"Record Name": k, "Submitted Name": v})
   write_csv("overrides.csv", overrides, ["Record Name", "Submitted Name"])
 
-broken_matches, ignored_matches, top_match_counter = write_deck_records(
-    "matches", matches)
-broken_games, ignored_games, top_game_counter = write_deck_records(
-    "games", games)
+(broken_matches, ignored_matches, top_match_counter, core_matches,
+ extra_matches) = write_deck_records("matches", matches)
+(broken_games, ignored_games, top_game_counter, core_games,
+ extra_games) = write_deck_records("games", games)
 
 t10p_m = top_match_counter["10p"]
 t20p_m = top_match_counter["20p"]
@@ -349,4 +376,7 @@ log(f"top 10/20/30/40/50% matches: {t10p_m}/{t20p_m}/{t30p_m}/{t40p_m}/{t50p_m} 
    )
 log(f"top 10/20/30/40/50% games: {t10p_g}/{t20p_g}/{t30p_g}/{t40p_g}/{t50p_g} (of {len(games)})"
    )
+log(f"")
+log(f"core matches: {core_matches}, extra matches: {extra_matches}")
+log(f"core games: {core_games}, extra games: {extra_games}")
 log(f"")
