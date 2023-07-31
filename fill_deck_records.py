@@ -67,6 +67,11 @@ rankings = read_csv("rankings.csv")
 ranking_by_pid = {r["player_id"]: int(r["ranking"]) for r in rankings}
 num_players = len(rankings)
 
+# this would seem like the logical solution, but the whole reason to start
+# using pid is that ranking names didn't match record names
+# record_name_by_pid = {r["player_id"]: r["name"] for r in rankings}
+record_name_by_pid = {}
+
 try:
   overrides = read_csv("overrides.csv")
   override_dict = {}
@@ -231,6 +236,40 @@ decks_for_sub_player, num_bad_decks = deck_mapping()
 sub_player_for_record_player, num_bad_players = player_mapping()
 
 
+def write_deck_rankings():
+  broken_rankings = 0
+  ignored_rankings = 0
+
+  output_path = os.path.join(main_dir, f"deck_rankings.csv")
+  with open(output_path, "w") as f:
+    writer = csv.writer(f)
+    writer.writerow(["ranking", "deck"])
+
+    for (pid, ranking) in ranking_by_pid.items():
+      record_name = record_name_by_pid[pid].strip().lower()
+
+      # log(f"{ranking} {record_name}")
+
+      if record_name in ignored_names:
+        ignored_rankings += 1
+        continue
+
+      sub_name = sub_player_for_record_player.get(record_name)
+
+      if sub_name is None:
+        log(f"broken ranking: {record_name}", print_dest=None)
+        broken_rankings += 1
+        continue
+
+      (deck_1, deck_2) = decks_for_sub_player[sub_name]
+
+      writer.writerow([ranking, deck_1])
+      if deck_2:
+        writer.writerow([ranking, deck_2])
+
+  return broken_rankings, ignored_rankings
+
+
 def write_deck_records(record_type, records):
   broken_records = 0
   ignored_records = 0
@@ -252,6 +291,9 @@ def write_deck_records(record_type, records):
       record_loser = record["loser"].strip().lower()
       winner_pid = record["winner_pid"]
       loser_pid = record["loser_pid"]
+
+      record_name_by_pid[winner_pid] = record_winner
+      record_name_by_pid[loser_pid] = record_loser
 
       if not record_loser:
         continue
@@ -351,6 +393,8 @@ if override_dict:
 (broken_games, ignored_games, top_game_counter, core_games,
  extra_games) = write_deck_records("games", games)
 
+(broken_rankings, ignored_rankings) = write_deck_rankings()
+
 t10p_m = top_match_counter["10p"]
 t20p_m = top_match_counter["20p"]
 t30p_m = top_match_counter["30p"]
@@ -379,4 +423,8 @@ log(f"top 10/20/30/40/50% games: {t10p_g}/{t20p_g}/{t30p_g}/{t40p_g}/{t50p_g} (o
 log(f"")
 log(f"core matches: {core_matches}, extra matches: {extra_matches}")
 log(f"core games: {core_games}, extra games: {extra_games}")
+log(f"")
+log(f"broken rankings: {broken_rankings}")
+log(f"ignored rankings: {ignored_rankings}")
+log(f"total players: {len(rankings)}")
 log(f"")
