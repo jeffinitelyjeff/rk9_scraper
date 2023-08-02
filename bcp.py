@@ -5,6 +5,8 @@ import sys
 
 import requests
 
+from util import Player
+
 run_timestamp = datetime.datetime.now()
 
 FILENAME = os.path.basename(__file__)
@@ -171,3 +173,22 @@ def get_all_rankings_data(client_id, eventID):
 
 def get_all_match_data(client_id, eventID, round):
   return get_paginated_data("matches", client_id, eventID, round=round)
+
+
+def player_for_player_data(player_data):
+  first_name = player_data["firstName"]
+  last_name = player_data["lastName"]
+  name = f"{first_name} {last_name}"
+  placement = player_data["placing"]
+  player_id = player_data["id"]
+  player = Player(name, placement, player_id=player_id)
+  if player.is_valid():
+    return player
+  else:
+    return None
+
+
+def get_rankings(client_id, eventID):
+  players_data = get_all_rankings_data(client_id, eventID)
+  players = [player_for_player_data(p_data) for p_data in players_data]
+  return [p for p in players if p]

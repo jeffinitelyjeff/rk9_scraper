@@ -21,8 +21,15 @@ parser.add_argument('--dir', type=str, required=True)
 args = parser.parse_args()
 
 main_dir = os.path.abspath(args.dir or ".")
+log_dir = os.path.join(main_dir, "logs")
+
+try:
+  os.mkdir(log_dir)
+except FileExistsError:
+  pass
+
 log_name = f"{FILENAME}-{run_timestamp:%Y%m%d}.log"
-log_path = os.path.join(main_dir, log_name)
+log_path = os.path.join(log_dir, log_name)
 
 logging.basicConfig(format='[%(asctime)s] %(message)s',
                     filename=log_path,
@@ -61,10 +68,14 @@ def write_csv(fname, rows, fields):
 
 sub_decks = read_csv("submitted_decks.csv")
 matches = read_csv("matches.csv")
-games = read_csv("games.csv")
+try:
+  games = read_csv("games.csv")
+except FileNotFoundError:
+  games = []
 rankings = read_csv("rankings.csv")
 
 ranking_by_pid = {r["player_id"]: int(r["ranking"]) for r in rankings}
+ranking_by_discord = {r["discord"]: int(r["ranking"]) for r in rankings}
 num_players = len(rankings)
 
 # this would seem like the logical solution, but the whole reason to start
@@ -90,15 +101,13 @@ except FileNotFoundError:
   ignored_names = set()
 
 sub_player_counts = Counter()
-sub_players_by_first_name = defaultdict(set)
-sub_players_by_last_name = defaultdict(set)
+sub_players_by_word = defaultdict(set)
 for player in sub_decks:
   full_name = player["Player Name"].strip().lower()
-  first_name = full_name.split()[0]
-  last_name = full_name.split()[-1]
+  words = full_name.split()
+  for word in words:
+    sub_players_by_word[word].add(full_name)
   sub_player_counts[full_name] += 1
-  sub_players_by_first_name[first_name].add(full_name)
-  sub_players_by_last_name[last_name].add(full_name)
 
 for sub_player, count in sub_player_counts.items():
   if count > 1 and sub_player not in ignored_names:
@@ -162,24 +171,32 @@ def sub_name_for_record_player(player):
   if player in sub_players:
     return player, []
 
-  record_first = player.split()[0]
-  record_last = player.split()[-1]
+  share_word = set()
+  words = player.split()
+  for word in words:
+    share_word.update(sub_players_by_word.get(word, set()))
 
-  same_first = sub_players_by_first_name.get(record_first, set())
-  same_last = sub_players_by_last_name.get(record_last, set())
-  same_first_and_last = sorted(same_first.intersection(same_last))
+  share_word = sorted(share_word)
+  guesses = [f'{g} *' if g in record_players else g for g in share_word]
 
-  if len(same_first_and_last) == 1:
-    guess = same_first_and_last[0]
-    if guess in record_players:
-      # if someone else submitted a deck with the same name
-      return None, [guess]
-    else:
-      return guess, []
+  # record_first = player.split()[0]
+  # record_last = player.split()[-1]
 
-  same_first_or_last = sorted(same_first.union(same_last))
+  # same_first = sub_players_by_first_name.get(record_first, set())
+  # same_last = sub_players_by_last_name.get(record_last, set())
+  # same_first_and_last = sorted(same_first.intersection(same_last))
 
-  guesses = [f'{g} *' if g in record_players else g for g in same_first_or_last]
+  # if len(same_first_and_last) == 1:
+  #   guess = same_first_and_last[0]
+  #   if guess in record_players:
+  #     # if someone else submitted a deck with the same name
+  #     return None, [guess]
+  #   else:
+  #     return guess, []
+
+  # same_first_or_last = sorted(same_first.union(same_last))
+
+  # guesses = [f'{g} *' if g in record_players else g for g in same_first_or_last]
 
   if len(guesses) > 0:
     return None, guesses
@@ -243,16 +260,19 @@ def write_deck_rankings():
   output_path = os.path.join(main_dir, f"deck_rankings.csv")
   with open(output_path, "w") as f:
     writer = csv.writer(f)
-    writer.writerow(["ranking", "deck"])
+    writer.writerow(
+        ["ranking", "deck", "record name", "submitted name", "pid", "discord"])
 
-    for (pid, ranking) in ranking_by_pid.items():
-      record_name = record_name_by_pid[pid].strip().lower()
+    for ranking_row in rankings:
+      ranking = int(ranking_row["ranking"])
+      ranking_name = ranking_row["name"].strip().lower()
+      pid = ranking_row["player_id"]
+      discord = ranking_row["discord"]
 
-      # log(f"{ranking} {record_name}")
-
-      if record_name in ignored_names:
-        ignored_rankings += 1
-        continue
+      if pid:
+        record_name = record_name_by_pid[pid]
+      else:
+        record_name = ranking_name
 
       sub_name = sub_player_for_record_player.get(record_name)
 
@@ -263,9 +283,9 @@ def write_deck_rankings():
 
       (deck_1, deck_2) = decks_for_sub_player[sub_name]
 
-      writer.writerow([ranking, deck_1])
+      writer.writerow([ranking, deck_1, record_name, sub_name, pid, discord])
       if deck_2:
-        writer.writerow([ranking, deck_2])
+        writer.writerow([ranking, deck_2, record_name, sub_name, pid, discord])
 
   return broken_rankings, ignored_rankings
 
@@ -291,6 +311,8 @@ def write_deck_records(record_type, records):
       record_loser = record["loser"].strip().lower()
       winner_pid = record["winner_pid"]
       loser_pid = record["loser_pid"]
+      winner_discord = record["winner_discord"]
+      loser_discord = record["loser_discord"]
 
       record_name_by_pid[winner_pid] = record_winner
       record_name_by_pid[loser_pid] = record_loser
@@ -302,8 +324,19 @@ def write_deck_records(record_type, records):
         ignored_records += 1
         continue
 
-      winner_rank = ranking_by_pid.get(winner_pid, num_players + 1)
-      loser_rank = ranking_by_pid.get(loser_pid, num_players + 1)
+      max_rank = num_players + 1
+
+      winner_rank = num_players + 1
+      if winner_pid:
+        winner_rank = ranking_by_pid.get(winner_pid, max_rank)
+      elif winner_discord:
+        winner_rank = ranking_by_discord.get(winner_discord, max_rank)
+
+      loser_rank = num_players + 1
+      if loser_pid:
+        loser_rank = ranking_by_pid.get(loser_pid, max_rank)
+      elif loser_discord:
+        loser_rank = ranking_by_discord.get(loser_discord, max_rank)
 
       winner_top_10p = winner_rank <= num_players * 0.1
       loser_top_10p = loser_rank <= num_players * 0.1
@@ -390,8 +423,6 @@ if override_dict:
 
 (broken_matches, ignored_matches, top_match_counter, core_matches,
  extra_matches) = write_deck_records("matches", matches)
-(broken_games, ignored_games, top_game_counter, core_games,
- extra_games) = write_deck_records("games", games)
 
 (broken_rankings, ignored_rankings) = write_deck_rankings()
 
@@ -400,29 +431,38 @@ t20p_m = top_match_counter["20p"]
 t30p_m = top_match_counter["30p"]
 t40p_m = top_match_counter["40p"]
 t50p_m = top_match_counter["50p"]
-t10p_g = top_game_counter["10p"]
-t20p_g = top_game_counter["20p"]
-t30p_g = top_game_counter["30p"]
-t40p_g = top_game_counter["40p"]
-t50p_g = top_game_counter["50p"]
+
+if len(games) > 0:
+  (broken_games, ignored_games, top_game_counter, core_games,
+   extra_games) = write_deck_records("games", games)
+
+  t10p_g = top_game_counter["10p"]
+  t20p_g = top_game_counter["20p"]
+  t30p_g = top_game_counter["30p"]
+  t40p_g = top_game_counter["40p"]
+  t50p_g = top_game_counter["50p"]
 
 log(f"")
 log(f"ignored matches: {ignored_matches} (of {len(matches)})")
-log(f"ignored games: {ignored_games} (of {len(games)})")
+if len(games) > 0:
+  log(f"ignored games: {ignored_games} (of {len(games)})")
 log(f"")
 log(f"mismatched decks: {num_bad_decks} (of {len(sub_decks)})")
 log(f"mismatched players: {num_bad_players} (of {len(sub_decks)})")
 log(f"")
 log(f"broken matches: {broken_matches} (of {len(matches)})")
-log(f"broken games: {broken_games} (of {len(games)})")
+if len(games) > 0:
+  log(f"broken games: {broken_games} (of {len(games)})")
 log(f"")
 log(f"top 10/20/30/40/50% matches: {t10p_m}/{t20p_m}/{t30p_m}/{t40p_m}/{t50p_m} (of {len(matches)})"
    )
-log(f"top 10/20/30/40/50% games: {t10p_g}/{t20p_g}/{t30p_g}/{t40p_g}/{t50p_g} (of {len(games)})"
-   )
+if len(games) > 0:
+  log(f"top 10/20/30/40/50% games: {t10p_g}/{t20p_g}/{t30p_g}/{t40p_g}/{t50p_g} (of {len(games)})"
+     )
 log(f"")
 log(f"core matches: {core_matches}, extra matches: {extra_matches}")
-log(f"core games: {core_games}, extra games: {extra_games}")
+if len(games) > 0:
+  log(f"core games: {core_games}, extra games: {extra_games}")
 log(f"")
 log(f"broken rankings: {broken_rankings}")
 log(f"ignored rankings: {ignored_rankings}")

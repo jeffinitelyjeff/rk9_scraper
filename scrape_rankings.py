@@ -7,6 +7,7 @@ import pprint
 import sys
 
 import bcp
+import rk9
 
 FILENAME = os.path.basename(__file__)
 FILEDIR = os.path.dirname(__file__)
@@ -45,51 +46,18 @@ def log(msg, print_dest="stderr"):
     print(msg)
 
 
-class Player:
-
-  def __init__(self, name, ranking, player_id):
-    self.name = name
-    self.ranking = ranking
-    self.player_id = player_id
-
-  def __repr__(self):
-    return f"{self.name} placement: {self.ranking}"
-
-  def is_valid(self):
-    return self.name and self.ranking and self.player_id
-
-
-def player_for_bcp_player_data(player_data):
-  first_name = player_data["firstName"]
-  last_name = player_data["lastName"]
-  name = f"{first_name} {last_name}"
-  placement = player_data["placing"]
-  player_id = player_data["id"]
-  player = Player(name, placement, player_id)
-  if player.is_valid():
-    return player
-  else:
-    return None
-
-
-def get_all_bcp_rankings(client_id, eventID):
-  players_data = bcp.get_all_rankings_data(client_id, eventID)
-  players = [player_for_bcp_player_data(p_data) for p_data in players_data]
-  return [p for p in players if p]
-
-
 def main():
   args = parser.parse_args()
 
   platform = "rk9" if args.rk9 else "bcp"
 
   if args.rk9:
-    raise NotImplementedError
+    players = rk9.get_rankings(args.tid)
   elif args.bcp:
     if not args.client_id:
       log("bcp client-id required")
       sys.exit(1)
-    players = get_all_bcp_rankings(args.client_id, args.tid)
+    players = bcp.get_rankings(args.client_id, args.tid)
   else:
     log("invalid platform")
     sys.exit(1)
@@ -98,9 +66,10 @@ def main():
                               f"{platform}_{args.tid}_rankings.csv")
   with open(players_path, 'w', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(["ranking", "name", "player_id"])
+    writer.writerow(["ranking", "name", "player_id", "discord"])
     for player in players:
-      writer.writerow([player.ranking, player.name, player.player_id])
+      writer.writerow(
+          [player.ranking, player.name, player.player_id, player.discord])
 
   log(f"output written to {players_path}")
 
