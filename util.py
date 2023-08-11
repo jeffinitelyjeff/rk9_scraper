@@ -61,13 +61,17 @@ class Game:
                table,
                round,
                winner_pid=None,
-               loser_pid=None):
+               loser_pid=None,
+               winner_discord=None,
+               loser_discord=None):
     self.winner = winner
     self.loser = loser
     self.table = table
     self.round = round
     self.winner_pid = winner_pid
     self.loser_pid = loser_pid
+    self.winner_discord = winner_discord
+    self.loser_discord = loser_discord
 
   def __repr__(self):
     return f"{self.winner} beat {self.loser} (round {self.round}, table {self.table}, game {self.match_game})"

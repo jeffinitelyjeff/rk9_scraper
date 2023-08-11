@@ -72,7 +72,10 @@ try:
   games = read_csv("games.csv")
 except FileNotFoundError:
   games = []
-rankings = read_csv("rankings.csv")
+try:
+  rankings = read_csv("rankings.csv")
+except FileNotFoundError:
+  rankings = []
 
 ranking_by_pid = {r["player_id"]: int(r["ranking"]) for r in rankings}
 ranking_by_discord = {r["discord"]: int(r["ranking"]) for r in rankings}
@@ -177,7 +180,7 @@ def sub_name_for_record_player(player):
     share_word.update(sub_players_by_word.get(word, set()))
 
   share_word = sorted(share_word)
-  guesses = [f'{g} *' if g in record_players else g for g in share_word]
+  guesses = [f'* {g}' if g in record_players else f'- {g}' for g in share_word]
 
   # record_first = player.split()[0]
   # record_last = player.split()[-1]
@@ -230,7 +233,7 @@ def player_mapping():
           carousel=True,
       )
       answers = inquirer.prompt([question])
-      answer = answers["chosen_guess"]
+      answer = answers["chosen_guess"].strip("*- ")
       if answer == reject:
         log(f"player not found: {rec_player}")
         mismatched_players.add(rec_player)
@@ -241,10 +244,15 @@ def player_mapping():
       log(f"player not found: {rec_player}")
       mismatched_players.add(rec_player)
 
+  mismatched_path = os.path.join(main_dir, "mismatched_players.txt")
   if len(mismatched_players) > 0:
-    output_path = os.path.join(main_dir, "mismatched_players.txt")
-    with open(output_path, "w") as f:
+    with open(mismatched_path, "w") as f:
       f.write("\n".join(sorted(mismatched_players)))
+  else:
+    try:
+      os.remove(mismatched_path)
+    except FileNotFoundError:
+      pass
 
   return dict, len(mismatched_players)
 
@@ -256,6 +264,9 @@ sub_player_for_record_player, num_bad_players = player_mapping()
 def write_deck_rankings():
   broken_rankings = 0
   ignored_rankings = 0
+
+  if len(rankings) == 0:
+    return broken_rankings, ignored_rankings
 
   output_path = os.path.join(main_dir, f"deck_rankings.csv")
   with open(output_path, "w") as f:
@@ -270,7 +281,11 @@ def write_deck_rankings():
       discord = ranking_row["discord"]
 
       if pid:
-        record_name = record_name_by_pid[pid]
+        try:
+          record_name = record_name_by_pid[pid]
+        except KeyError:
+          log(f"ranking for {ranking_name} ignored b/c they have no records")
+          continue
       else:
         record_name = ranking_name
 
