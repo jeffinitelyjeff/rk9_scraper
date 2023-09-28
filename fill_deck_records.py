@@ -1,5 +1,5 @@
 import argparse
-from collections import defaultdict, Counter
+from collections import defaultdict, Counter, namedtuple
 import csv
 import datetime
 import logging
@@ -59,7 +59,7 @@ def write_csv(fname, rows, fields):
   with open(path, 'w') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fields)
     writer.writeheader()
-    rows.sort(key=lambda x: x["Record Name"])
+    rows.sort(key=lambda x: x["Pairing Name"])
     for row in rows:
       writer.writerow(row)
 
@@ -82,7 +82,7 @@ ranking_by_discord = {r["discord"]: int(r["ranking"]) for r in rankings}
 num_players = len(rankings)
 
 # this would seem like the logical solution, but the whole reason to start
-# using pid is that ranking names didn't match record names
+# using pid is that ranking names didn't match pairing names
 # record_name_by_pid = {r["player_id"]: r["name"] for r in rankings}
 record_name_by_pid = {}
 
@@ -90,8 +90,8 @@ try:
   overrides = read_csv("overrides.csv")
   override_dict = {}
   for row in overrides:
-    record_name = row["Record Name"].strip().lower()
-    submitted_name = row["Submitted Name"].strip().lower()
+    record_name = row["Pairing Name"].strip().lower()
+    submitted_name = row["Form Name"].strip().lower()
     override_dict[record_name] = submitted_name
 except FileNotFoundError:
   override_dict = {}
@@ -99,7 +99,7 @@ except FileNotFoundError:
 try:
   ignore_names = read_csv("ignored_names.csv")
   ignored_names = set(
-      [row["Record Name"].strip().lower() for row in ignore_names])
+      [row["Pairing Name"].strip().lower() for row in ignore_names])
 except FileNotFoundError:
   ignored_names = set()
 
@@ -119,10 +119,27 @@ for sub_player, count in sub_player_counts.items():
 
 sub_players = set(sub_player_counts.keys())
 
+PlayerRecord = namedtuple('PlayerRecord', ['name', 'ranking'])
+
 record_players = set()
-for match in matches:
-  record_players.add(match["winner"].strip().lower())
-  record_players.add(match["loser"].strip().lower())
+record_player_names = set()
+for ranking in rankings:
+  name = ranking["name"].strip().lower()
+  rank = int(ranking["ranking"])
+  record_players.add(PlayerRecord(name, rank))
+  record_player_names.add(name)
+
+
+def get_count_tags_from_sub_deck_row(row):
+  tags = []
+  i = 1
+  while True:
+    tag = row.get(f"Count Tag {i}")
+    if not tag:
+      break
+    tags.append(tag)
+    i += 1
+  return tags
 
 
 def deck_mapping():
@@ -146,6 +163,8 @@ def deck_mapping():
     sub_deck_1 = player["Deck Type"]
     sub_deck_2 = player["Deck Type 2"]
 
+    sub_tags = get_count_tags_from_sub_deck_row(player)
+
     if canon_decks_by_sub_deck:
       canon_deck_1 = canon_decks_by_sub_deck.get(sub_deck_1)
       canon_deck_2 = canon_decks_by_sub_deck.get(sub_deck_2)
@@ -157,7 +176,8 @@ def deck_mapping():
       log(f"deck not found: {sub_deck_1}")
       mismatched_decks.add(sub_deck_1)
     else:
-      deck_dict[sub_player_name] = (canon_deck_1, canon_deck_2)
+      deck_labels = [canon_deck_1, canon_deck_2, *sub_tags]
+      deck_dict[sub_player_name] = [l for l in deck_labels if l]
 
   if len(mismatched_decks) > 0:
     output_path = os.path.join(main_dir, "mismatched_decks.txt")
@@ -180,7 +200,9 @@ def sub_name_for_record_player(player):
     share_word.update(sub_players_by_word.get(word, set()))
 
   share_word = sorted(share_word)
-  guesses = [f'* {g}' if g in record_players else f'- {g}' for g in share_word]
+  guesses = [
+      f'* {g}' if g in record_player_names else f'- {g}' for g in share_word
+  ]
 
   # record_first = player.split()[0]
   # record_last = player.split()[-1]
@@ -209,45 +231,60 @@ def sub_name_for_record_player(player):
 
 def player_mapping():
   dict = override_dict.copy()
-  mismatched_players = set()
+  mismatched_players = {}
 
-  for rec_player in sorted(record_players):
-    if not rec_player:
+  reject_following = False
+  for rec_player in sorted(x.name for x in record_players):
+    rec_name = rec_player.name
+    rec_rank = rec_player.ranking
+
+    if not rec_name:
       continue
 
-    if rec_player in ignored_names:
+    if rec_name in ignored_names:
       continue
 
-    if rec_player in override_dict:
+    if rec_name in override_dict:
       continue
 
-    sub_name, guesses = sub_name_for_record_player(rec_player)
+    sub_name, guesses = sub_name_for_record_player(rec_name)
     if sub_name is not None:
-      dict[rec_player] = sub_name
+      dict[rec_name] = sub_name
     elif guesses:
+      if reject_following:
+        mismatched_players[rec_name] = rec_rank
+        continue
+
       reject = u"✗ None of these"
+      reject_all = u"✗ None of these (for all remaining players)"
       question = inquirer.List(
           'chosen_guess',
-          message=f"Which sub name is record name =>[ {rec_player} ]<=?",
-          choices=guesses + [reject],
+          message=f"vv FORM NAMES vv --- PAIRING NAME: =>[ {rec_name} ]<=",
+          choices=guesses + [reject, reject_all],
           carousel=True,
       )
       answers = inquirer.prompt([question])
       answer = answers["chosen_guess"].strip("*- ")
       if answer == reject:
-        log(f"player not found: {rec_player}")
-        mismatched_players.add(rec_player)
+        log(f"player not found: {rec_name}")
+        mismatched_players[rec_name] = rec_rank
+      elif answer == reject_all:
+        reject_following = True
+        mismatched_players[rec_name] = rec_rank
       else:
-        dict[rec_player] = answer
-        override_dict[rec_player] = answer
+        dict[rec_name] = answer
+        override_dict[rec_name] = answer
     else:
-      log(f"player not found: {rec_player}")
-      mismatched_players.add(rec_player)
+      log(f"player not found: {rec_name}")
+      mismatched_players[rec_name] = rec_rank
 
-  mismatched_path = os.path.join(main_dir, "mismatched_players.txt")
+  mismatched_path = os.path.join(main_dir, "mismatched_players.csv")
   if len(mismatched_players) > 0:
     with open(mismatched_path, "w") as f:
-      f.write("\n".join(sorted(mismatched_players)))
+      writer = csv.writer(f)
+      writer.writerow(["form name", "ranking"])
+      for name, rank in sorted(mismatched_players.items()):
+        writer.writerow([name, rank])
   else:
     try:
       os.remove(mismatched_path)
@@ -272,7 +309,7 @@ def write_deck_rankings():
   with open(output_path, "w") as f:
     writer = csv.writer(f)
     writer.writerow(
-        ["ranking", "deck", "record name", "submitted name", "pid", "discord"])
+        ["ranking", "deck", "pairing name", "form name", "pid", "discord"])
 
     for ranking_row in rankings:
       ranking = int(ranking_row["ranking"])
@@ -296,11 +333,10 @@ def write_deck_rankings():
         broken_rankings += 1
         continue
 
-      (deck_1, deck_2) = decks_for_sub_player[sub_name]
+      decks = decks_for_sub_player[sub_name]
 
-      writer.writerow([ranking, deck_1, record_name, sub_name, pid, discord])
-      if deck_2:
-        writer.writerow([ranking, deck_2, record_name, sub_name, pid, discord])
+      for deck in decks:
+        writer.writerow([ranking, deck, record_name, sub_name, pid, discord])
 
   return broken_rankings, ignored_rankings
 
@@ -391,20 +427,22 @@ def write_deck_records(record_type, records):
         broken_records += 1
         continue
 
-      (winner_deck_1, winner_deck_2) = decks_for_sub_player[sub_winner]
-      (loser_deck_1, loser_deck_2) = decks_for_sub_player[sub_loser]
+      winner_decks = decks_for_sub_player[sub_winner]
+      loser_decks = decks_for_sub_player[sub_loser]
+
+      winner_core_deck = winner_decks[0]
+      loser_core_deck = loser_decks[0]
 
       deck_pairs = []
 
       # winner, loser, is_core_record
-      deck_pairs.append((winner_deck_1, loser_deck_1, True))
+      deck_pairs.append((winner_core_deck, loser_core_deck, True))
 
-      if winner_deck_2:
-        deck_pairs.append((winner_deck_2, loser_deck_1, False))
-      if loser_deck_2:
-        deck_pairs.append((winner_deck_1, loser_deck_2, False))
-      if winner_deck_2 and loser_deck_2:
-        deck_pairs.append((winner_deck_2, loser_deck_2, False))
+      for winner_deck in winner_decks:
+        for loser_deck in loser_decks:
+          if winner_deck == winner_core_deck and loser_deck == loser_core_deck:
+            continue
+          deck_pairs.append((winner_deck, loser_deck, False))
 
       for (winner_deck, loser_deck, is_core_record) in deck_pairs:
         if is_core_record:
@@ -433,8 +471,8 @@ def write_deck_records(record_type, records):
 if override_dict:
   overrides = []
   for k, v in override_dict.items():
-    overrides.append({"Record Name": k, "Submitted Name": v})
-  write_csv("overrides.csv", overrides, ["Record Name", "Submitted Name"])
+    overrides.append({"Pairing Name": k, "Form Name": v})
+  write_csv("overrides.csv", overrides, ["Pairing Name", "Form Name"])
 
 (broken_matches, ignored_matches, top_match_counter, core_matches,
  extra_matches) = write_deck_records("matches", matches)
