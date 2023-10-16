@@ -26,10 +26,7 @@ class Match:
     # return f"Match(winner={self.winner}, loser={self.loser}, table={self.table}, round={self.round})"
 
   def is_valid_match(self):
-    winner_id = self.winner_pid or self.winner_discord
-    loser_id = self.loser_pid or self.loser_discord
-    return (self.winner and self.loser and self.table and self.round and
-            winner_id and loser_id)
+    return self.winner and self.loser and self.table and self.round
 
   def make_games(self, winner_wins, loser_wins):
     l = []
@@ -89,4 +86,4 @@ class Player:
     return f"{self.name} placement: {self.ranking}"
 
   def is_valid(self):
-    return self.name and self.ranking and (self.player_id or self.discord)
+    return self.name and self.ranking

@@ -11,6 +11,9 @@ from util import Match, Player
 
 run_timestamp = datetime.datetime.now()
 
+# TODO: fix these paths -- since they're global, they get set once by bcp.py
+# and then all the logs for other modules get written to bcp.py
+
 FILENAME = os.path.basename(__file__)
 FILEDIR = os.path.dirname(__file__)
 
@@ -79,26 +82,28 @@ def get_matches(data, round):
   matches = []
   match_divs = round_div.find_all("div", class_="match")
   for match_div in match_divs:
-    winner, loser, table = None, None, None
-
-    name_re = re.compile(r'"(.*)" (.*)')
-
+    winner = None
+    loser = None
+    table = None
     winner_discord = None
+    loser_discord = None
+
+    discord_re = re.compile(r'"(.*)" (.*)')
+
     try:
       winner = match_div.find("div", class_="winner").find(
           "span", class_="name").get_text(" ", strip=True)
-      winner_re_match = name_re.match(winner)
-      if winner_re_match:
-        winner_discord = winner_re_match.group(1)
-        winner = winner_re_match.group(2)
+      winner_discord_match = discord_re.match(winner)
+      if winner_discord_match:
+        winner_discord = winner_discord_match.group(1)
+        winner = winner_discord_match.group(2)
     except AttributeError:
       log(f"failed to parse winner", print_dest=None)
 
-    loser_discord = None
     try:
       loser = match_div.find("div", class_="loser").find(
           "span", class_="name").get_text(" ", strip=True)
-      loser_re_match = name_re.match(loser)
+      loser_re_match = discord_re.match(loser)
       if loser_re_match:
         loser_discord = loser_re_match.group(1)
         loser = loser_re_match.group(2)
@@ -130,13 +135,22 @@ def get_rankings(event_id):
   if not rankings_div:
     return None
 
-  ranking_re = re.compile(r'(\d+). "(.*)" (.*)')
+  discord_re = re.compile(r'(\d+). "(.*)" (.*)')
+  nodiscord_re = re.compile(r'(\d+). (.*)')
   rankings = []
   for row in rankings_div.stripped_strings:
-    match = ranking_re.match(row)
-    if match:
-      ranking, discord, name = match.groups()
+    discord_match = discord_re.match(row)
+    if discord_match:
+      ranking, discord, name = discord_match.groups()
       player = Player(name, ranking, discord=discord)
+      if player.is_valid():
+        rankings.append(player)
+        continue
+
+    nodiscord_match = nodiscord_re.match(row)
+    if nodiscord_match:
+      ranking, name = nodiscord_match.groups()
+      player = Player(name, ranking)
       if player.is_valid():
         rankings.append(player)
         continue
