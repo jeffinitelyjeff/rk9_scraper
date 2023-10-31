@@ -5,7 +5,7 @@ import sys
 
 import requests
 
-from util import Player
+from util import Match, Player
 
 run_timestamp = datetime.datetime.now()
 
@@ -192,3 +192,53 @@ def get_rankings(client_id, eventID):
   players_data = get_all_rankings_data(client_id, eventID)
   players = [player_for_player_data(p_data) for p_data in players_data]
   return [p for p in players if p]
+
+
+def match_for_match_data(match_data):
+  table = match_data["table"]
+  round = match_data["round"]
+  metadata = match_data.get("metaData")
+  if not metadata:
+    log(f"no metadata for match: {match_data}")
+    return None
+  p1Name = "{} {}".format(metadata["p1-firstName"], metadata["p1-lastName"])
+  p2Name = "{} {}".format(metadata["p2-firstName"], metadata["p2-lastName"])
+  p1Win = int(metadata["p1-marginOfVictory"]) > 0
+  if p1Win:
+    winner = p1Name
+    loser = p2Name
+    winner_wins = metadata["p1-gamePoints"]
+    loser_wins = metadata["p2-gamePoints"]
+    winner_pid = match_data.get("player1Id")
+    loser_pid = match_data.get("player2Id")
+  else:
+    winner = p2Name
+    loser = p1Name
+    winner_wins = metadata["p2-gamePoints"]
+    loser_wins = metadata["p1-gamePoints"]
+    winner_pid = match_data.get("player2Id")
+    loser_pid = match_data.get("player1Id")
+  return Match(winner,
+               loser,
+               table,
+               round,
+               winner_wins,
+               loser_wins,
+               winner_pid=winner_pid,
+               loser_pid=loser_pid)
+
+
+def get_all_matches(client_id, event_id):
+  match_data = []
+
+  for round in range(1, 20):
+    new_matches = get_all_match_data(client_id, event_id, round)
+    if new_matches:
+      match_data.extend(new_matches)
+    else:
+      break
+
+  log(f"done scraping")
+
+  matches = [match_for_match_data(match) for match in match_data]
+  return [m for m in matches if m and m.is_valid_match()]

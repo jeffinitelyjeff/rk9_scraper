@@ -44,7 +44,7 @@ def get_all_matches(event_id):
   matches = []
   round = 1
   while True:
-    round_matches = get_matches(data, round)
+    round_matches = get_round_matches(data, round)
     if round_matches:
       log(f"found {len(round_matches)} matches for round {round}")
       matches.extend(round_matches)
@@ -74,7 +74,7 @@ def scrape(data_url):
   return data
 
 
-def get_matches(data, round):
+def get_round_matches(data, round):
   round_div = data.find(id=f"P2R{round}")
   if not round_div:
     return None

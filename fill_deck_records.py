@@ -67,7 +67,8 @@ NameMapping = namedtuple(
     'NameMapping',
     ['ranking', 'pairing_record_name', 'form_submitted_name', 'deck_type'],
     defaults=(None,) * 4)
-IgnoredName = namedtuple('IgnoredName', ['ranking', 'pairing_record_name'])
+IgnoredName = namedtuple('IgnoredName',
+                         ['ranking', 'pairing_record_name', 'reason'])
 
 
 def read_csv(fname, tuple_type):
@@ -175,12 +176,9 @@ for sub_player, count in sub_player_counts.items():
 
 sub_players = set(sub_player_counts.keys())
 
-record_players = set()
 record_player_names = set()
 for ranking in rankings:
   name = ranking.name.strip().lower()
-  rank = int(ranking.ranking)
-  record_players.add(RankingRecord(ranking=rank, name=name))
   record_player_names.add(name)
 
 
@@ -221,12 +219,12 @@ def sub_name_for_record_player(player):
 
 def make_player_mapping():
   dict = override_dict.copy()
-  mismatched_players = {}
+  mismatch_count = 0
 
   reject_following = False
-  for rec_player in sorted(record_players, key=lambda x: x.name):
-    rec_name = rec_player.name
-    rec_rank = rec_player.ranking
+  for rec_player in sorted(rankings, key=lambda x: x.name):
+    rec_name = rec_player.name.strip().lower()
+    rec_rank = int(rec_player.ranking)
 
     empty_mapping = NameMapping(rec_rank, rec_name, '')
 
@@ -239,51 +237,55 @@ def make_player_mapping():
     override_mapping = override_dict.get(rec_rank)
     if override_mapping and (override_mapping.form_submitted_name or
                              override_mapping.deck_type):
+      log(f"skipping name: {rec_name} (already mapped)")
       continue
 
     sub_name, guesses = sub_name_for_record_player(rec_name)
     if sub_name is not None:
       dict[rec_rank] = NameMapping(rec_rank, rec_name, sub_name)
-    elif guesses:
-      if reject_following:
-        mismatched_players[rec_rank] = empty_mapping
-        continue
+      override_dict.pop(rec_rank, None)
+      continue
 
-      reject = u"✗ None of these"
-      reject_all = u"✗ None of these (all remaining)"
-      question = inquirer.List(
-          'chosen_guess',
-          message=f"Submitted Form Name",
-          choices=guesses + [reject, reject_all],
-          carousel=True,
-      )
-      print(f"\n\nPairing Record Name: =>[ {rec_name} ]<= (Rank {rec_rank})\n")
-      answers = inquirer.prompt([question])
-      answer = answers["chosen_guess"].strip('*- ')
-      if answer == reject:
-        log(f"player not found: {rec_name}")
-        mismatched_players[rec_rank] = empty_mapping
-      elif answer == reject_all:
-        reject_following = True
-        mismatched_players[rec_name] = empty_mapping
-      else:
-        mapping = NameMapping(rec_rank, rec_name, answer)
-        dict[rec_rank] = mapping
-        override_dict[rec_rank] = mapping
-    else:
+    if not guesses:
       log(f"player not found: {rec_name}")
-      mismatched_players[rec_rank] = empty_mapping
+      override_dict[rec_rank] = empty_mapping
+      mismatch_count += 1
+      continue
 
-  mismatched_path = os.path.join(main_dir, "mismatched_players.csv")
-  if len(mismatched_players) > 0:
-    write_csv(mismatched_path, mismatched_players.values(), NameMapping)
-  else:
-    try:
-      os.remove(mismatched_path)
-    except FileNotFoundError:
-      pass
+    if reject_following:
+      override_dict[rec_rank] = empty_mapping
+      mismatch_count += 1
+      continue
 
-  return dict, len(mismatched_players)
+    reject = u"✗ None of these"
+    reject_all = u"✗ None of these (all remaining)"
+    question = inquirer.List(
+        'chosen_guess',
+        message=f"Submitted Form Name",
+        choices=guesses + [reject, reject_all],
+        carousel=True,
+    )
+    print(f"\n\nPairing Record Name:\n=>[ {rec_name} ]<= (Rank: {rec_rank})")
+    if rec_player.discord:
+      print(f"Discord: {rec_player.discord}")
+    print(f"\n")
+
+    answers = inquirer.prompt([question])
+    answer = answers["chosen_guess"].strip('*- ')
+    if answer == reject:
+      log(f"player not found: {rec_name}")
+      override_dict[rec_rank] = empty_mapping
+      mismatch_count += 1
+    elif answer == reject_all:
+      reject_following = True
+      override_dict[rec_rank] = empty_mapping
+      mismatch_count += 1
+    else:
+      mapping = NameMapping(rec_rank, rec_name, answer)
+      dict[rec_rank] = mapping
+      override_dict[rec_rank] = mapping
+
+  return dict, mismatch_count
 
 
 decks_by_sub_player = make_deck_mapping()
@@ -474,14 +476,20 @@ def write_deck_records(record_type, records):
 
 
 if override_dict:
-  try:
-    mismatched_players = read_csv("mismatched_players.csv", NameMapping)
-  except FileNotFoundError:
-    mismatched_players = []
-
-  items = sorted(override_dict.values(),
-                 key=lambda x: x.ranking) + mismatched_players
+  items = sorted(override_dict.values(), key=lambda x: int(x.ranking))
   write_csv("overrides.csv", items, NameMapping)
+
+  mismatches = [
+      o for o in items if (not (o.form_submitted_name or o.deck_type) and
+                           o.pairing_record_name not in ignored_names)
+  ]
+  if mismatches:
+    write_csv("mismatched_players.csv", mismatches, NameMapping)
+  else:
+    try:
+      os.remove(os.path.join(main_dir, "mismatched_players.csv"))
+    except FileNotFoundError:
+      pass
 
 (broken_matches, ignored_matches, top_match_counter, core_matches,
  extra_matches) = write_deck_records("matches", matches)
