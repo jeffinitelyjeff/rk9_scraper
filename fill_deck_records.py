@@ -365,30 +365,23 @@ def write_deck_rankings():
 def write_deck_records(record_type, records):
   broken_records = 0
   ignored_records = 0
-  top_count = Counter()
   core_count = 0
   extra_count = 0
   bye_count = 0
 
   output_path = os.path.join(main_dir, f"deck_{record_type}.csv")
   with open(output_path, "w") as f:
-    # [(name for tag, rank cutoff)]
-    top_tags = [
-        ("top_10p", num_players * 0.1),
-        ("top_20p", num_players * 0.2),
-        ("top_30p", num_players * 0.3),
-        ("top_40p", num_players * 0.4),
-        ("top_50p", num_players * 0.5),
-        ("top_16", 16),
-        ("top_32", 32),
-        ("top_64", 64),
-    ]
-
     cols = [
-        "round", "table", "winner", "loser", "winner_deck", "loser_deck",
-        "core_record"
+        "round",
+        "table",
+        "winner",
+        "loser",
+        "winner_deck",
+        "loser_deck",
+        "core_record",
+        "winner_ranking",
+        "loser_ranking",
     ]
-    cols.extend([tag for tag, cutoff in top_tags])
 
     writer = csv.writer(f)
     writer.writerow(cols)
@@ -431,12 +424,6 @@ def write_deck_records(record_type, records):
                     ranking_by_discord.get(loser_discord) or
                     ranking_by_rname.get(record_loser) or max_rank)
 
-      top_flags = {}
-      for tag, cutoff in top_tags:
-        if winner_rank <= cutoff and loser_rank <= cutoff:
-          top_count[tag] += 1
-          top_flags[tag] = True
-
       winner_decks, sub_winner = get_deck_types_for_rank(winner_rank)
       loser_decks, sub_loser = get_deck_types_for_rank(loser_rank)
 
@@ -474,14 +461,12 @@ def write_deck_records(record_type, records):
 
         row = [
             round, table, record_winner, record_loser, winner_deck, loser_deck,
-            "y" if is_core_record else ""
+            "y" if is_core_record else "", winner_rank, loser_rank
         ]
-        row.extend(
-            ["y" if top_flags.get(tag, False) else "" for tag, _ in top_tags])
 
         writer.writerow(row)
 
-  return broken_records, ignored_records, top_count, core_count, extra_count, bye_count
+  return broken_records, ignored_records, core_count, extra_count, bye_count
 
 
 if override_dict:
@@ -500,26 +485,14 @@ if override_dict:
     except FileNotFoundError:
       pass
 
-(broken_matches, ignored_matches, top_match_counter, core_matches,
- extra_matches, match_byes) = write_deck_records("matches", matches)
+(broken_matches, ignored_matches, core_matches, extra_matches,
+ match_byes) = write_deck_records("matches", matches)
 
 (broken_rankings, ignored_rankings) = write_deck_rankings()
-
-t10p_m = top_match_counter["10p"]
-t20p_m = top_match_counter["20p"]
-t30p_m = top_match_counter["30p"]
-t40p_m = top_match_counter["40p"]
-t50p_m = top_match_counter["50p"]
 
 if len(games) > 0:
   (broken_games, ignored_games, top_game_counter, core_games, extra_games,
    game_byes) = write_deck_records("games", games)
-
-  t10p_g = top_game_counter["10p"]
-  t20p_g = top_game_counter["20p"]
-  t30p_g = top_game_counter["30p"]
-  t40p_g = top_game_counter["40p"]
-  t50p_g = top_game_counter["50p"]
 
 log(f"")
 log(f"ignored matches: {ignored_matches} (of {len(matches)})")
@@ -533,12 +506,6 @@ log(f"match byes: {match_byes}")
 if len(games) > 0:
   log(f"broken games: {broken_games} (of {len(games)})")
   log(f"game byes: {game_byes}")
-log(f"")
-log(f"top 10/20/30/40/50% matches: {t10p_m}/{t20p_m}/{t30p_m}/{t40p_m}/{t50p_m} (of {len(matches)})"
-   )
-if len(games) > 0:
-  log(f"top 10/20/30/40/50% games: {t10p_g}/{t20p_g}/{t30p_g}/{t40p_g}/{t50p_g} (of {len(games)})"
-     )
 log(f"")
 log(f"core matches: {core_matches}, extra matches: {extra_matches}")
 if len(games) > 0:
