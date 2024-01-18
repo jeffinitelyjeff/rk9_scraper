@@ -6,6 +6,7 @@ import os
 import pprint
 import sys
 
+import battlefy
 import bcp
 import rk9
 
@@ -24,6 +25,7 @@ parser.add_argument('--tid', type=str, required=True)
 platform_group = parser.add_mutually_exclusive_group(required=True)
 platform_group.add_argument('--rk9', action='store_true')
 platform_group.add_argument('--bcp', action='store_true')
+platform_group.add_argument('--battlefy', action='store_true')
 parser.add_argument('--client-id', type=str)
 parser.add_argument('--games', action='store_true')
 
@@ -50,15 +52,18 @@ def log(msg, print_dest="stderr"):
 
 
 def main():
-  platform = "rk9" if args.rk9 else "bcp"
-
   if args.rk9:
+    platform = "rk9"
     matches = rk9.get_all_matches(args.tid)
   elif args.bcp:
+    platform = "bcp"
     if not args.client_id:
       log("bcp client-id required")
       sys.exit(1)
     matches = bcp.get_all_matches(args.client_id, args.tid)
+  elif args.battlefy:
+    platform = "battlefy"
+    matches = battlefy.get_all_matches(args.tid)
   else:
     log("invalid platform")
     sys.exit(1)
