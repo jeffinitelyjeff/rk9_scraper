@@ -491,7 +491,7 @@ if override_dict:
 (broken_rankings, ignored_rankings) = write_deck_rankings()
 
 if len(games) > 0:
-  (broken_games, ignored_games, top_game_counter, core_games, extra_games,
+  (broken_games, ignored_games, core_games, extra_games,
    game_byes) = write_deck_records("games", games)
 
 log(f"")
